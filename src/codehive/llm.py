@@ -7,8 +7,6 @@ from dataclasses import dataclass
 
 
 class LLMClient(ABC):
-    """Abstract text generation backend."""
-
     @abstractmethod
     def generate_json(self, prompt: str) -> dict:
         raise NotImplementedError
@@ -19,46 +17,82 @@ class MockLLMClient(LLMClient):
     """Deterministic fallback planner for offline use."""
 
     def generate_json(self, prompt: str) -> dict:
-        # Kept intentionally simple and deterministic.
+        if "REVERSE_ENGINEER_PROMPT" in prompt:
+            return {
+                "responsibility": "Maintain and improve legacy code in this directory.",
+                "inputs": ["Existing source files", "Cross-directory API dependencies"],
+                "outputs": ["Refactored modules", "Reduced duplication", "Improved tests"],
+                "dependencies": ["internal modules"],
+                "conventions": [
+                    "Follow language best practices",
+                    "Eliminate dead code",
+                    "Ensure deterministic behavior",
+                ],
+            }
+
         return {
             "project_name": "generated_project",
-            "tech_stack": ["Python", "Typer", "Pydantic"],
+            "tech_stack": ["Python", "TypeScript", "Go", "Rust", "C++"],
             "directories": [
                 {
                     "path": ".",
-                    "responsibility": "Project-level orchestration and shared architecture.",
-                    "inputs": ["Project brief", "CLI arguments"],
-                    "outputs": ["Global architecture summary", "System config"],
+                    "responsibility": "Root coordination and global governance.",
+                    "inputs": ["project brief", "operator commands"],
+                    "outputs": ["architecture summary", "agent scheduling decisions"],
                     "dependencies": [],
-                    "conventions": ["Keep root lightweight", "Prefer typed Python"],
+                    "conventions": ["Minimal root files", "Declarative orchestration config"],
                     "files_to_generate": ["README.md", "pyproject.toml"],
+                    "language": "generic",
                 },
                 {
-                    "path": "src",
-                    "responsibility": "Application source code.",
-                    "inputs": ["Architecture summary"],
-                    "outputs": ["Reusable packages"],
-                    "dependencies": ["."],
-                    "conventions": ["Use src layout", "Module-level docstrings"],
-                    "files_to_generate": ["__init__.py"],
+                    "path": "apps/api",
+                    "responsibility": "Service APIs and request handlers.",
+                    "inputs": ["HTTP/gRPC requests", "domain services"],
+                    "outputs": ["API responses", "domain events"],
+                    "dependencies": ["libs/core", "libs/shared"],
+                    "conventions": ["Validate inputs", "Use thin controller pattern"],
+                    "files_to_generate": ["main.py", "handlers.py"],
+                    "language": "python",
+                },
+                {
+                    "path": "apps/web",
+                    "responsibility": "Web UI and user interactions.",
+                    "inputs": ["backend APIs", "user actions"],
+                    "outputs": ["rendered views", "telemetry"],
+                    "dependencies": ["libs/shared"],
+                    "conventions": ["Type-safe UI", "Component reusability"],
+                    "files_to_generate": ["index.ts"],
+                    "language": "typescript",
+                },
+                {
+                    "path": "libs/core",
+                    "responsibility": "Business domain rules and use cases.",
+                    "inputs": ["commands", "entities", "events"],
+                    "outputs": ["domain decisions", "state transitions"],
+                    "dependencies": ["libs/shared"],
+                    "conventions": ["Pure domain logic", "No framework coupling"],
+                    "files_to_generate": ["core.py"],
+                    "language": "python",
+                },
+                {
+                    "path": "libs/shared",
+                    "responsibility": "Cross-cutting utilities and contracts.",
+                    "inputs": ["app/core module calls"],
+                    "outputs": ["reusable helper APIs"],
+                    "dependencies": [],
+                    "conventions": ["Backwards-compatible interfaces", "Low coupling"],
+                    "files_to_generate": ["README.md"],
+                    "language": "generic",
                 },
                 {
                     "path": "tests",
-                    "responsibility": "Automated validation of generated modules.",
-                    "inputs": ["Public APIs"],
-                    "outputs": ["Test reports"],
-                    "dependencies": ["src"],
-                    "conventions": ["Fast unit tests", "Deterministic fixtures"],
+                    "responsibility": "Cross-module regression and contract tests.",
+                    "inputs": ["module APIs", "fixtures"],
+                    "outputs": ["test reports"],
+                    "dependencies": ["apps/api", "apps/web", "libs/core"],
+                    "conventions": ["Fast and deterministic tests", "High signal failure output"],
                     "files_to_generate": ["test_smoke.py"],
-                },
-                {
-                    "path": "docs",
-                    "responsibility": "Documentation and architecture decision records.",
-                    "inputs": ["Module contracts", "Release notes"],
-                    "outputs": ["Human-readable docs"],
-                    "dependencies": ["."],
-                    "conventions": ["Keep docs concise", "Prefer examples"],
-                    "files_to_generate": ["overview.md"],
+                    "language": "python",
                 },
             ],
         }
@@ -66,8 +100,6 @@ class MockLLMClient(LLMClient):
 
 @dataclass(slots=True)
 class AnthropicLLMClient(LLMClient):
-    """Anthropic Claude JSON planner."""
-
     model: str = "claude-3-7-sonnet-latest"
 
     def generate_json(self, prompt: str) -> dict:
@@ -77,7 +109,7 @@ class AnthropicLLMClient(LLMClient):
 
         try:
             from anthropic import Anthropic
-        except Exception as exc:  # pragma: no cover - optional dependency
+        except Exception as exc:  # pragma: no cover
             raise RuntimeError(
                 "anthropic package is not installed. Install with `pip install codehive[anthropic]`."
             ) from exc
@@ -85,12 +117,10 @@ class AnthropicLLMClient(LLMClient):
         client = Anthropic(api_key=api_key)
         response = client.messages.create(
             model=self.model,
-            max_tokens=3000,
+            max_tokens=3500,
             temperature=0.1,
-            system="Respond with valid JSON only.",
+            system="Return strictly valid JSON.",
             messages=[{"role": "user", "content": prompt}],
         )
-
         text_parts = [b.text for b in response.content if getattr(b, "type", None) == "text"]
-        raw = "".join(text_parts).strip()
-        return json.loads(raw)
+        return json.loads("".join(text_parts).strip())

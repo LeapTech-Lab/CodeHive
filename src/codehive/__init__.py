@@ -1,4 +1,4 @@
-"""CodeHive package."""
+"""CodeHive public API."""
 
 from .orchestrator import Orchestrator
 

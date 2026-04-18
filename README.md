@@ -1,60 +1,115 @@
 # CodeHive
 
-CodeHive 是一个**动态目录级多 Agent 代码生成框架**，用于大型 monorepo / 复杂项目的初始化与增量演进。
+CodeHive 是一个面向大型 monorepo 的**动态目录级代码阅读、重构与生成框架**。
 
-它把“一个项目需求（project brief）”拆解为目录级职责契约，并由 Root Agent + Directory Agents 协同完成目录创建、契约文档（`CLAUDE.md`）生成与基础代码脚手架落地。
+- Root Agent = 蜂后（全局协调）
+- 每个目录 = 蜂房（Directory Agent 独立处理）
+- 每个目录必须有 `PROMPT.md`（职责/契约/规范）
+- 强目录隔离（Agent 仅可读写自己的目录）
 
-## 核心特性
+---
 
-- **Root Agent 规划阶段**
-  - 解析项目需求。
-  - 产出全局目录树（包含根目录 `.`）。
-  - 生成每个目录专属 `CLAUDE.md`（职责、输入输出契约、依赖、规范、全局摘要）。
-  - 输出 `architecture_summary.json` 供后续 Agent 使用。
+## 架构设计图（文本）
 
-- **Directory Agent 执行阶段**
-  - 每个 Agent 只处理自己目录。
-  - 基于目录契约生成脚手架（可扩展为补全/重构/测试）。
-  - 通过目录沙箱实现“只读写本目录及子目录”的权限隔离。
+```text
+                         +---------------------------+
+                         |        RootAgent          |
+                         |  (Queen / Coordinator)    |
+                         +-------------+-------------+
+                                       |
+                      plan/review/schedule|persist architecture_summary.json
+                                       v
++----------------------+     +----------------------+     +----------------------+
+|      MessageBus      |<--->|      AgentPool       |<--->|   DirectoryAgent N   |
+| topic + broadcast    |     | dynamic create/reuse |     | (sandboxed per dir)  |
++----------+-----------+     | idle recycle/rate    |     +----------+-----------+
+           ^                 +----------------------+                |
+           |                                                        read/write only
+           | dependency notifications                               own directory tree
+           |                                                        |
+           |                         +----------------------+       v
+           +-------------------------|   RefactorEngine     |  +-----------+
+                                     | static scan + rewrite|  | PROMPT.md |
+                                     +----------+-----------+  +-----------+
+                                                |
+                                     +----------v-----------+
+                                     | TrainingSourceAgent  |
+                                     | py/ts/go/cpp/rust    |
+                                     +----------------------+
+```
 
-- **动态 Agent Pool**
-  - 按需创建、复用、释放目录 Agent。
-  - 可作为后续“闲置回收、优先级调度”的基础。
+---
 
-- **消息总线与协调机制**
-  - Directory Agent 完成变更后发布 `directory.changed` 事件。
-  - Root/Orchestrator 可订阅并进行依赖影响分析与一致性检查。
+## 双模式运行
 
-- **并发执行与统计**
-  - 支持多目录并发生成。
-  - 输出任务成功/失败、活跃 Agent 数、总耗时等统计。
+### Mode 1: Generation Mode
+
+```bash
+codehive generate --brief "项目需求..." --paradigm clean-architecture
+```
+
+流程：
+1. RootAgent 解析 brief，生成目录树。
+2. 为每个目录写入 `PROMPT.md`。
+3. AgentPool 动态创建 DirectoryAgent 并并发执行。
+4. DirectoryAgent 仅加载本目录 `PROMPT.md` + 全局摘要，生成目录代码。
+5. MessageBus 发布目录变更事件，RootAgent 进行一致性审查。
+
+### Mode 2: Refactor Mode（升级重点）
+
+```bash
+codehive refactor --path ./messy-repo --paradigm factory
+```
+
+流程：
+1. RootAgent 扫描已有仓库并按目录创建 Analyzer Agent（DirectoryAgent in analyze mode）。
+2. Analyzer 深读目录代码，逆向推断“原始可生成该代码的提示词”，写入 `PROMPT.md`。
+3. 按语言自动选择训练源 Agent（Python/TypeScript/Go/C++/Rust）。
+4. 执行静态分析（冗余/重复/坏味道）+ 自动重构（按指定范式）。
+5. RootAgent 汇总结果并做全局一致性检查。
+
+---
+
+## 核心模块
+
+- `RootAgent`：规划目录、逆向推断目录契约、全局审查。
+- `DirectoryAgent`：目录级生成/分析/重构执行器（强隔离）。
+- `AgentPool`：动态创建、复用、销毁、并发限流、闲置回收。
+- `RefactorEngine`：执行代码清理和范式化重构。
+- `training_sources.py`：多语言“专业训练源 Agent”规则库。
+- `MessageBus`：跨目录变更通知和依赖协调。
+- `Orchestrator`：统一编排 Generation/Refactor 两条主流程。
+
+---
 
 ## 项目结构
 
 ```text
-codehive/
+.
 ├── pyproject.toml
 ├── README.md
-└── src/
-    └── codehive/
+└── src/codehive
+    ├── __init__.py
+    ├── analyzers.py
+    ├── cli.py
+    ├── llm.py
+    ├── messaging.py
+    ├── models.py
+    ├── orchestrator.py
+    ├── pool.py
+    ├── refactor_engine.py
+    ├── sandbox.py
+    ├── stats.py
+    ├── training_sources.py
+    └── agents
         ├── __init__.py
-        ├── cli.py
-        ├── llm.py
-        ├── messaging.py
-        ├── models.py
-        ├── orchestrator.py
-        ├── pool.py
-        ├── sandbox.py
-        ├── stats.py
-        └── agents/
-            ├── __init__.py
-            ├── directory_agent.py
-            └── root_agent.py
+        ├── directory_agent.py
+        └── root_agent.py
 ```
 
-## 快速开始
+---
 
-### 1) 安装
+## 安装
 
 ```bash
 python -m venv .venv
@@ -62,81 +117,50 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-如果要使用 Anthropic Claude：
+可选 Anthropic：
 
 ```bash
 pip install -e .[anthropic]
-export ANTHROPIC_API_KEY=your_key
+export ANTHROPIC_API_KEY=YOUR_KEY
 ```
 
-### 2) 运行入口脚本
+---
+
+## 示例
+
+### 生成模式
 
 ```bash
-codehive generate "构建一个支持插件系统、REST API、任务调度和可观测性的企业级平台" --output-root ./generated --max-workers 6
+codehive generate \
+  --brief "构建一个支持API、Web、任务调度和多语言SDK的企业平台" \
+  --output-root ./generated \
+  --paradigm ddd \
+  --max-workers 6
 ```
 
-执行后将自动：
+### 重构模式
 
-1. 规划目录结构。
-2. 创建目录。
-3. 在每个目录写入 `CLAUDE.md`。
-4. 生成全局 `architecture_summary.json`。
-5. 并发运行目录 Agent 做基础 scaffold。
+```bash
+codehive refactor \
+  --path ./messy-repo \
+  --paradigm factory \
+  --max-workers 6
+```
 
-## CLI 参数
+---
 
-- `brief`：项目需求描述（自然语言）。
-- `--output-root`：生成项目的目标根目录（默认 `./generated`）。
-- `--use-anthropic`：启用 Anthropic Claude 作为 Root 规划器。
-- `--max-workers`：并发目录 Agent 数量。
-- `--verbose`：输出 debug 日志。
+## 扩展建议
 
-## 关键模块说明
+1. 用 LangGraph 替换当前简单调度层，实现显式 DAG 状态流。
+2. 将 MessageBus 替换为 Redis/NATS 支持跨进程 Agent。
+3. 为 RefactorEngine 增加 AST 级变换（libcst/tree-sitter）以获得更高正确率。
+4. 引入目录依赖拓扑排序，实现“先依赖后消费者”的智能调度。
 
-- `RootAgent`：负责需求分析、架构设计、目录树创建、全局摘要持久化。
-- `DirectoryAgent`：目录级执行单元，受 `DirectorySandbox` 权限保护。
-- `AgentPool`：动态管理目录 Agent 生命周期。
-- `Orchestrator`：统一协调、并发执行、事件订阅、最终统计。
-- `MessageBus`：目录间变更通知（可扩展到跨进程/队列）。
+---
 
-## 扩展指南
+## 目标
 
-### 1) 接入真实代码生成
+CodeHive 的最终目标是：
 
-当前 `DirectoryAgent` 默认写入 `CLAUDE.md + .codehive.generated`。
-可在 `run_task` 中新增动作：
-
-- `generate_code`
-- `refactor`
-- `run_tests`
-
-并按目录职责调用不同 Prompt 模板或工具链。
-
-### 2) 增量更新
-
-可通过比较历史 `architecture_summary.json` 与新版本差异，触发受影响目录的选择性执行。
-
-### 3) 依赖拓扑调度
-
-把 `DirectorySpec.dependencies` 构建为 DAG，可先跑上游目录，再并行下游目录。
-
-### 4) Agent Pool 策略
-
-为 `AgentPool` 增加：
-
-- 空闲超时自动销毁
-- 热目录常驻
-- 按 token / rate limit 的配额调度
-
-## 日志与错误处理
-
-- 所有任务结果统一为 `TaskResult`。
-- 失败任务保留错误信息，不中断其他目录并发任务。
-- `RuntimeStats` 追踪总任务数、成功/失败数、活跃 Agent 数与耗时。
-
-## 未来路线图
-
-- 支持跨语言模板（Go/TS/Rust）。
-- 支持多 LLM Router（Claude + OpenAI + 本地模型）。
-- 支持持久化事件日志与可视化任务面板。
-- 支持真正的“目录级权限隔离执行器”（容器/沙箱进程）。
+- **一句话生成可维护代码仓库**，或
+- **把任意 Agent 产出的脏仓库自动重构为结构清晰、范式统一、可持续演进的专业级代码库。**

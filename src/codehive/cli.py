@@ -10,45 +10,69 @@ from rich.table import Table
 
 from .orchestrator import Orchestrator
 
-app = typer.Typer(help="CodeHive dynamic directory-level multi-agent generator")
+app = typer.Typer(help="CodeHive dynamic directory-level multi-agent framework")
 console = Console()
 
 
 def _setup_logging(verbose: bool) -> None:
-    level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(level=level, format="%(asctime)s [%(levelname)s] %(name)s - %(message)s")
+    logging.basicConfig(
+        level=logging.DEBUG if verbose else logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
+    )
+
+
+def _print_results(title: str, mode: str, root: Path, review: dict[str, int], results) -> None:
+    table = Table(title=title)
+    table.add_column("Directory")
+    table.add_column("Action")
+    table.add_column("Success")
+    table.add_column("Changed")
+    table.add_column("Findings")
+    for result in results:
+        table.add_row(
+            result.directory,
+            result.action,
+            str(result.success),
+            str(len(result.changed_files)),
+            str(len(result.findings)),
+        )
+    console.print(table)
+    console.print(f"\n[bold]Mode:[/bold] {mode}")
+    console.print(f"[bold]Root:[/bold] {root.resolve()}")
+    console.print(f"[bold]Consistency Review:[/bold] {json.dumps(review, ensure_ascii=False)}")
 
 
 @app.command()
 def generate(
-    brief: str = typer.Argument(..., help="Project brief in natural language"),
-    output_root: str = typer.Option("./generated", help="Output folder for generated project"),
-    use_anthropic: bool = typer.Option(False, help="Use Anthropic Claude instead of deterministic mock planner"),
-    max_workers: int = typer.Option(4, min=1, max=32, help="Maximum parallel directory agents"),
+    brief: str = typer.Option(..., "--brief", help="Project brief in natural language"),
+    output_root: str = typer.Option("./generated", help="Output folder"),
+    paradigm: str = typer.Option("clean-architecture", help="Target paradigm (factory/mvc/ddd/...)"),
+    use_anthropic: bool = typer.Option(False, help="Use Anthropic Claude planning"),
+    max_workers: int = typer.Option(4, min=1, max=32, help="Parallel directory workers"),
     verbose: bool = typer.Option(False, help="Enable debug logs"),
 ) -> None:
-    """Generate multi-agent project scaffold from a single project brief."""
     _setup_logging(verbose)
     orchestrator = Orchestrator(use_anthropic=use_anthropic, max_workers=max_workers)
-    summary, task_results = orchestrator.run(brief=brief, output_root=output_root)
-
-    table = Table(title="Directory Agent Execution Results")
-    table.add_column("Directory")
-    table.add_column("Action")
-    table.add_column("Success")
-    table.add_column("Changed files")
-
-    for result in task_results:
-        table.add_row(result.directory, result.action, str(result.success), str(len(result.changed_files)))
-    console.print(table)
-
-    stats_json = json.dumps(orchestrator.stats.as_dict(), ensure_ascii=False, indent=2)
+    summary, results, review = orchestrator.run_generation(brief=brief, output_root=output_root, paradigm=paradigm)
+    _print_results("Generation Results", summary.mode.value, Path(summary.root_path), review, results)
     console.print("\n[bold]Runtime Stats[/bold]")
-    console.print(stats_json)
+    console.print(json.dumps(orchestrator.stats.as_dict(), ensure_ascii=False, indent=2))
 
-    console.print("\n[bold green]Done[/bold green]")
-    console.print(f"Project: {summary.project_name}")
-    console.print(f"Root: {Path(summary.root_path).resolve()}")
+
+@app.command()
+def refactor(
+    path: str = typer.Option(..., "--path", help="Existing messy repository path"),
+    paradigm: str = typer.Option("factory", "--paradigm", help="Refactor paradigm (factory/builder/mvc/ddd/...)"),
+    use_anthropic: bool = typer.Option(False, help="Use Anthropic Claude reverse engineering"),
+    max_workers: int = typer.Option(4, min=1, max=32, help="Parallel directory workers"),
+    verbose: bool = typer.Option(False, help="Enable debug logs"),
+) -> None:
+    _setup_logging(verbose)
+    orchestrator = Orchestrator(use_anthropic=use_anthropic, max_workers=max_workers)
+    summary, results, review = orchestrator.run_refactor(repo_path=path, paradigm=paradigm)
+    _print_results("Refactor Results", summary.mode.value, Path(summary.root_path), review, results)
+    console.print("\n[bold]Runtime Stats[/bold]")
+    console.print(json.dumps(orchestrator.stats.as_dict(), ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

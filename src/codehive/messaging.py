@@ -13,7 +13,7 @@ class BusMessage:
 
 
 class MessageBus:
-    """Simple in-process pub/sub bus for cross-agent dependency notifications."""
+    """In-process message bus with topic and wildcard broadcast subscribers."""
 
     def __init__(self) -> None:
         self._subscribers: dict[str, list[Callable[[BusMessage], None]]] = defaultdict(list)
@@ -24,12 +24,12 @@ class MessageBus:
     def publish(self, message: BusMessage) -> None:
         for handler in self._subscribers.get(message.topic, []):
             handler(message)
+        for handler in self._subscribers.get("*", []):
+            handler(message)
 
 
 @dataclass(slots=True)
 class NotificationCollector:
-    """Collects messages received by an agent for traceability/debugging."""
-
     messages: list[BusMessage] = field(default_factory=list)
 
     def __call__(self, message: BusMessage) -> None:
