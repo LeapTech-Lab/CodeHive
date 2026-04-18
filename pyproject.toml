@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codehive"
+version = "0.1.0"
+description = "Dynamic directory-level multi-agent code generation framework"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "CodeHive" }]
+dependencies = [
+  "typer>=0.12.0",
+  "pydantic>=2.6.0",
+  "rich>=13.7.0",
+]
+
+[project.optional-dependencies]
+anthropic = ["anthropic>=0.50.0"]
+
+[project.scripts]
+codehive = "codehive.cli:app"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
